@@ -16,7 +16,8 @@ scope statement, not a certification.
 | Calibration summary | `calibration.py`, MCP tool | failure retention, ratio, coverage tests | no bundled real outcome corpus; no T4 claim |
 | Scheduling | none | none | must be supplied by host automation |
 
-Release still requires the preregistered local-model behavioral pilot, a fresh
-package verification after any resulting changes, public repository publication,
-and public CI. Broader real-task evaluation remains required for behavioral
+The amended preregistered local-model behavioral pilot passed its frozen gate;
+both the failed v1 and passing v2 evidence are retained under `evals/`. Release
+still requires fresh package verification, public repository publication, and
+public CI. Broader real-task evaluation remains required for behavioral
 generalization or T4 claims.

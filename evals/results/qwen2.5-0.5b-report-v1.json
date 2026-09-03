@@ -1,0 +1,228 @@
+{
+  "checks": {
+    "all_planned_records_retained": true,
+    "completion_regression_within_tolerance": true,
+    "controller_returned_within_deadline_tolerance": true,
+    "matched_design": true,
+    "minimum_matched_blocks_reached": true,
+    "minimum_records_reached": true,
+    "minimum_task_templates_reached": true,
+    "no_controller_harness_errors": false,
+    "paired_design": true,
+    "utility_regression_within_tolerance": true
+  },
+  "diagnostics": {
+    "base_complete": 7,
+    "base_utility_mean": 0.7111111111111111,
+    "controller_complete": 7,
+    "controller_error_run_ids": [
+      "faa44fd7-b957-4c7f-b0be-88c26d91ad2f"
+    ],
+    "controller_late_return_run_ids": [],
+    "controller_utility_mean": 0.8
+  },
+  "evaluation": {
+    "conditions": {
+      "base": {
+        "actual_elapsed_seconds": {
+          "count": 9,
+          "max": 9.016433560987934,
+          "min": 3.8107104909140617,
+          "p50": 5.4308412570972,
+          "p80": 6.268402290670201,
+          "p90": 6.821210146648809
+        },
+        "checkpoint_absolute_likely_error_seconds": {
+          "count": 1,
+          "max": 18.214940591016784,
+          "min": 18.214940591016784,
+          "p50": 18.214940591016784,
+          "p80": 18.214940591016784,
+          "p90": 18.214940591016784
+        },
+        "checkpoint_count": 1,
+        "checkpoint_interval_coverage": 0.0,
+        "checkpoint_interval_width_seconds": {
+          "count": 1,
+          "max": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p80": 0.0,
+          "p90": 0.0
+        },
+        "completion_rate": 0.7777777777777778,
+        "deadline_violation_rate": 0.0,
+        "early_warning_lead_seconds": {
+          "count": 0,
+          "max": null,
+          "min": null,
+          "p50": null,
+          "p80": null,
+          "p90": null
+        },
+        "failed_or_timed_out_runs": 2,
+        "failed_runs_without_warning": 2,
+        "models": [
+          "qwen2.5:0.5b"
+        ],
+        "runs": 9,
+        "verified_utility_mean": 0.7111111111111111
+      },
+      "controller": {
+        "actual_elapsed_seconds": {
+          "count": 9,
+          "max": 14.108978108037263,
+          "min": 6.442540277028456,
+          "p50": 12.090841792989522,
+          "p80": 13.17219159901142,
+          "p90": 13.743082818295807
+        },
+        "checkpoint_absolute_likely_error_seconds": {
+          "count": 3,
+          "max": 16.475856157951057,
+          "min": 15.290950065013021,
+          "p50": 15.959996622987092,
+          "p80": 16.26951234396547,
+          "p90": 16.372684250958265
+        },
+        "checkpoint_count": 3,
+        "checkpoint_interval_coverage": 0.0,
+        "checkpoint_interval_width_seconds": {
+          "count": 3,
+          "max": 20.0,
+          "min": 20.0,
+          "p50": 20.0,
+          "p80": 20.0,
+          "p90": 20.0
+        },
+        "completion_rate": 0.7777777777777778,
+        "deadline_violation_rate": 0.0,
+        "early_warning_lead_seconds": {
+          "count": 0,
+          "max": null,
+          "min": null,
+          "p50": null,
+          "p80": null,
+          "p90": null
+        },
+        "failed_or_timed_out_runs": 1,
+        "failed_runs_without_warning": 1,
+        "models": [
+          "qwen2.5:0.5b"
+        ],
+        "runs": 9,
+        "verified_utility_mean": 0.8
+      },
+      "rules": {
+        "actual_elapsed_seconds": {
+          "count": 9,
+          "max": 8.716727866092697,
+          "min": 3.88575595500879,
+          "p50": 4.937737392960116,
+          "p80": 7.05124112260528,
+          "p90": 8.36999305956997
+        },
+        "checkpoint_absolute_likely_error_seconds": {
+          "count": 2,
+          "max": 18.128330640960485,
+          "min": 18.116214496083558,
+          "p50": 18.12227256852202,
+          "p80": 18.1259074119851,
+          "p90": 18.127119026472794
+        },
+        "checkpoint_count": 2,
+        "checkpoint_interval_coverage": 0.0,
+        "checkpoint_interval_width_seconds": {
+          "count": 2,
+          "max": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p80": 0.0,
+          "p90": 0.0
+        },
+        "completion_rate": 0.7777777777777778,
+        "deadline_violation_rate": 0.0,
+        "early_warning_lead_seconds": {
+          "count": 0,
+          "max": null,
+          "min": null,
+          "p50": null,
+          "p80": null,
+          "p90": null
+        },
+        "failed_or_timed_out_runs": 2,
+        "failed_runs_without_warning": 2,
+        "models": [
+          "qwen2.5:0.5b"
+        ],
+        "runs": 9,
+        "verified_utility_mean": 0.7333333333333333
+      },
+      "tracked": {
+        "actual_elapsed_seconds": {
+          "count": 9,
+          "max": 13.808382132090628,
+          "min": 5.8685127107892185,
+          "p50": 10.430902130901814,
+          "p80": 12.490702016931028,
+          "p90": 12.769422223232688
+        },
+        "checkpoint_absolute_likely_error_seconds": {
+          "count": 3,
+          "max": 17.195050107082352,
+          "min": 16.18745601293631,
+          "p50": 16.363870308967307,
+          "p80": 16.862578187836334,
+          "p90": 17.028814147459343
+        },
+        "checkpoint_count": 3,
+        "checkpoint_interval_coverage": 0.0,
+        "checkpoint_interval_width_seconds": {
+          "count": 3,
+          "max": 20.0,
+          "min": 20.0,
+          "p50": 20.0,
+          "p80": 20.0,
+          "p90": 20.0
+        },
+        "completion_rate": 0.8888888888888888,
+        "deadline_violation_rate": 0.0,
+        "early_warning_lead_seconds": {
+          "count": 0,
+          "max": null,
+          "min": null,
+          "p50": null,
+          "p80": null,
+          "p90": null
+        },
+        "failed_or_timed_out_runs": 1,
+        "failed_runs_without_warning": 1,
+        "models": [
+          "qwen2.5:0.5b"
+        ],
+        "runs": 9,
+        "verified_utility_mean": 0.8333333333333334
+      }
+    },
+    "interpretation_note": "descriptive metrics only; use repeated randomized matched runs before causal or significance claims",
+    "matched_design": true,
+    "paired_block_mismatches": [],
+    "paired_design": true,
+    "paired_seed_mismatches": [],
+    "records": 36,
+    "schema_version": "1.0",
+    "task_budget_or_tool_mismatches": [],
+    "task_condition_count_mismatches": [],
+    "unmatched_tasks": []
+  },
+  "passed": false,
+  "thresholds": {
+    "completion_block_tolerance": 1,
+    "deadline_return_tolerance_seconds": 0.5,
+    "expected_records": 36,
+    "minimum_matched_blocks": 9,
+    "minimum_records": 36,
+    "minimum_task_templates": 3,
+    "utility_regression_tolerance": 0.1
+  }
+}

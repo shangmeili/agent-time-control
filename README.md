@@ -6,9 +6,10 @@ read-only calibration summaries, automatic model/tool checkpoints, and local
 deadline enforcement. The optional Skill supplies planning practice; it is not
 the enforcement mechanism.
 
-Status: pre-release `0.1.0`. The mechanisms and interfaces are tested and the
-repository is licensed under Apache-2.0; the preregistered behavioral pilot and
-public repository checks are still release gates.
+Status: release candidate `0.1.0`. The mechanisms and interfaces are tested, the
+repository is licensed under Apache-2.0, and the amended preregistered behavioral
+pilot passed its frozen advancement gate. Public repository and CI verification
+remain release gates.
 
 ## Why this exists
 
@@ -143,7 +144,9 @@ action, subprocess cancellation, JSON Schema, in-process MCP, real stdio MCP, th
 OpenAI input filter and tool hook, prompt asynchronous deadline return, and the
 boundary of cooperative cancellation.
 The preregistered pilot, matched-run protocol, Ollama runner, and descriptive
-evaluator live in [`evals/`](evals/).
+evaluator live in [`evals/`](evals/). The v1 harness failure and the independently
+seeded passing v2 result are both retained; see
+[`evals/PILOT_V2_RESULTS.md`](evals/PILOT_V2_RESULTS.md).
 
 ## Assurance
 

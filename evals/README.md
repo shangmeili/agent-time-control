@@ -5,6 +5,9 @@ analysis requirements are in [`EXPERIMENT_PROTOCOL.md`](EXPERIMENT_PROTOCOL.md).
 The retained first pilot and its failed gate are summarized in
 [`PILOT_V1_RESULTS.md`](PILOT_V1_RESULTS.md); its records must not be silently
 reclassified as successful runs.
+The amended, independently seeded pilot passed its frozen gate; see
+[`PILOT_V2_RESULTS.md`](PILOT_V2_RESULTS.md) and the raw retained evidence in
+[`results/`](results/).
 
 Mechanism tests do not prove that a language model delivers more useful work by a
 deadline. A release-level behavioral evaluation should compare matched conditions:
