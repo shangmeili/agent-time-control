@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-time-control:schema:time-checkpoint:1.0",
+  "title": "Agent time checkpoint",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "now",
+    "deadline",
+    "phase",
+    "remaining_seconds",
+    "execution_remaining_seconds",
+    "remaining_work_interval",
+    "feasibility",
+    "action"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "clock_source": { "type": "string", "minLength": 1 },
+    "now": { "type": "string", "format": "date-time" },
+    "deadline": { "type": "string", "format": "date-time" },
+    "work_deadline": { "type": "string", "format": "date-time" },
+    "phase": { "enum": ["execute", "reserve", "expired"] },
+    "remaining_seconds": { "type": "integer" },
+    "execution_remaining_seconds": { "type": "integer" },
+    "remaining_work_interval": {
+      "type": "object",
+      "required": ["low_seconds", "likely_seconds", "high_seconds"],
+      "properties": {
+        "low_seconds": { "type": "number", "minimum": 0 },
+        "likely_seconds": { "type": "number", "minimum": 0 },
+        "high_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "calibration_multiplier": { "type": "number", "exclusiveMinimum": 0 },
+    "feasibility": {
+      "enum": ["feasible", "at_risk", "unlikely", "infeasible", "infeasible_for_new_work"]
+    },
+    "action": {
+      "enum": [
+        "continue",
+        "continue_core_only",
+        "replan_and_reduce_scope",
+        "reduce_scope_or_handoff",
+        "verify_and_handoff",
+        "stop"
+      ]
+    },
+    "reason": { "type": "string" },
+    "completed_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "deferred_scope": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

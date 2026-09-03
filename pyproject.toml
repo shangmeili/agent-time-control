@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-time-control"
+version = "0.1.0"
+description = "External clock, budget gates, calibration summaries, and deadline enforcement primitives for AI agents"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["mcp>=2,<3"]
+
+[project.optional-dependencies]
+test = ["jsonschema>=4.20"]
+openai-agents = ["openai-agents>=0.22,<1"]
+
+[project.scripts]
+agent-time-mcp = "agent_time_control.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Time-Aware Execution"
+  short_description: "Plan, estimate, and execute work against real deadlines"
+  default_prompt: "Use $time-aware-execution to plan this task against its deadline and report a calibrated delivery forecast."

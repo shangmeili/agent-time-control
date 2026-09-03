@@ -1,0 +1,17 @@
+## Time-aware execution baseline
+
+Apply these rules whenever a task has a deadline, timebox, ETA, scheduled wakeup, monitoring requirement, material tool latency, or a long execution horizon.
+
+- Treat time as external state. Use a host clock or time tool; never infer elapsed time from token generation or intuition.
+- Establish the deliverable, acceptance test, start time, deadline or duration, timezone, verification reserve, external waits, and required versus optional scope.
+- A relative duration starts from one recorded timestamp and must not reset on later checks.
+- Separate human effort, active agent time, external wait, and wall-clock delivery time.
+- Inspect before estimating when a cheap inspection can change scope. Give a low/likely/high remaining-work range, assumptions, confidence, and the next recalibration event. Do not present an unvalidated range as statistically calibrated.
+- Refresh the clock after uncertain or high-latency stages, when the plan changes, before scope expansion, and before final verification.
+- At each checkpoint, update the remaining-work interval from observed progress and decide whether completion is feasible within the remaining execution window.
+- When time tightens, remove polish first, then optional breadth, while preserving a working core, authorization, data integrity, and the highest-risk verification. Disclose every scope reduction.
+- Stop new work when the verification reserve begins. Stop at a hard deadline when the host can enforce it; otherwise state that enforcement is unavailable.
+- Use a real scheduler or event trigger for future wakeups, recurrence, and monitoring. A prompt or long sleep is not a scheduler.
+- Report delivered result and verification first, then actual timing, deadline status, changed forecasts, external waits, and exact deferred work.
+
+Do not claim “deadline guaranteed” without host-enforced cancellation and bounded dependencies. Do not claim “calibrated estimate” without comparable outcome data and measured coverage/error.
