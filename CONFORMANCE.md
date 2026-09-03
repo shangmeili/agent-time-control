@@ -17,7 +17,7 @@ scope statement, not a certification.
 | Scheduling | none | none | must be supplied by host automation |
 
 The amended preregistered local-model behavioral pilot passed its frozen gate;
-both the failed v1 and passing v2 evidence are retained under `evals/`. Release
-still requires fresh package verification, public repository publication, and
-public CI. Broader real-task evaluation remains required for behavioral
-generalization or T4 claims.
+both the failed v1 and passing v2 evidence are retained under `evals/`. Fresh
+wheel and source-package installation, public repository publication, and public
+CI for Python 3.10, 3.12, and 3.14 passed. Broader real-task evaluation remains
+required for behavioral generalization or T4 claims.

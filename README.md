@@ -6,10 +6,10 @@ read-only calibration summaries, automatic model/tool checkpoints, and local
 deadline enforcement. The optional Skill supplies planning practice; it is not
 the enforcement mechanism.
 
-Status: release candidate `0.1.0`. The mechanisms and interfaces are tested, the
-repository is licensed under Apache-2.0, and the amended preregistered behavioral
-pilot passed its frozen advancement gate. Public repository and CI verification
-remain release gates.
+Status: open-source `0.1.0`. The mechanisms and interfaces are tested, the
+repository is licensed under Apache-2.0, the amended preregistered behavioral
+pilot passed its frozen advancement gate, and public CI verifies Python 3.10,
+3.12, and 3.14.
 
 ## Why this exists
 
