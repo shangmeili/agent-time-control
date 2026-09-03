@@ -92,8 +92,16 @@ class TimeBudgetController:
     ) -> dict[str, object]:
         """Store the newest progressive remaining-work estimate and evaluate it."""
 
+        snapshot = self.snapshot()
+        state = decide(
+            snapshot,
+            low_seconds=low_seconds,
+            likely_seconds=likely_seconds,
+            high_seconds=high_seconds,
+            multiplier=self.calibration_multiplier,
+        )
         self._forecast = (low_seconds, likely_seconds, high_seconds)
-        return self.checkpoint()
+        return state
 
     def snapshot(self) -> dict[str, object]:
         observed = self._clock()
@@ -140,6 +148,10 @@ class TimeBudgetController:
         if not math.isfinite(estimated_seconds) or estimated_seconds < 0:
             raise ValueError("estimated_seconds must be finite and non-negative")
         state = self.require_new_work_allowed()
+        if optional and state.get("forecast_status") == "missing":
+            raise NewWorkWindowClosed(
+                "optional work requires a current remaining-work forecast"
+            )
         adjusted_duration = estimated_seconds * self.calibration_multiplier
         if adjusted_duration > float(state["execution_remaining_seconds"]):
             raise NewWorkWindowClosed(

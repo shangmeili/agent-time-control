@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import random
 import re
 import sys
@@ -23,10 +24,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agent_time_control.controller import (
     HardDeadlineReached,
+    NewWorkWindowClosed,
     TimeBudgetController,
     TimeContract,
 )
-from agent_time_control.evaluation import evaluate_pilot_advancement
+from agent_time_control.evaluation import (
+    evaluate_conditions,
+    evaluate_pilot_advancement,
+)
 
 CONDITIONS = ("base", "rules", "tracked", "controller")
 
@@ -142,6 +147,33 @@ def effective_delays(
     )
 
 
+def parse_action_selection(output: str, available: list[str]) -> str:
+    """Accept exactly one available action name from a model decision."""
+
+    matches = {
+        name for name in available if re.search(rf"\b{re.escape(name)}\b", output)
+    }
+    if len(matches) != 1:
+        raise ValueError(f"ambiguous workflow action: {output!r}")
+    return matches.pop()
+
+
+def parse_remaining_work_estimate(output: str) -> tuple[float, float, float]:
+    """Parse one ordered low/likely/high estimate without inventing values."""
+
+    values = [
+        float(token) for token in re.findall(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", output)
+    ]
+    if len(values) != 3:
+        raise ValueError(f"expected exactly three numeric estimates: {output!r}")
+    low, likely, high = values
+    if not all(math.isfinite(value) and value >= 0 for value in values):
+        raise ValueError("estimates must be finite and non-negative")
+    if not low <= likely <= high:
+        raise ValueError("estimates must satisfy low <= likely <= high")
+    return low, likely, high
+
+
 async def warm_model(host: str, model: str) -> None:
     url = host.rstrip("/") + "/api/chat"
     payload = json.dumps(
@@ -185,7 +217,6 @@ async def run_case(
     from agent_time_control.adapters.openai_agents import (
         TimeBudgetHooks,
         make_call_model_input_filter,
-        make_tool_input_guardrail,
     )
     from agents import (
         Agent,
@@ -193,8 +224,6 @@ async def run_case(
         OpenAIChatCompletionsModel,
         RunConfig,
         Runner,
-        ToolExecutionConfig,
-        function_tool,
         set_tracing_disabled,
     )
 
@@ -231,106 +260,64 @@ async def run_case(
     def elapsed() -> float:
         return time.monotonic() - started_monotonic
 
-    def guardrail(
+    def action_allowed(
         tool_name: str,
         estimated_seconds: float,
         *,
         optional: bool = False,
-    ):
+    ) -> bool:
+        nonlocal first_warning
         if condition != "controller":
-            return []
-
-        def record_rejection(reason: str) -> None:
+            return True
+        try:
+            controller.require_action_allowed(
+                estimated_seconds=estimated_seconds,
+                optional=optional,
+            )
+        except (HardDeadlineReached, NewWorkWindowClosed) as exc:
+            reason = f"TIME_BUDGET_REJECTED: {exc}"
             rejected_tool_events.append(
                 {"tool": tool_name, "elapsed_seconds": elapsed(), "reason": reason}
             )
+            if first_warning is None:
+                first_warning = elapsed()
             if tool_name == "get_optional_fact":
                 workflow["optional_closed"] = True
             elif tool_name in {"get_core_fact", "verify_core_fact"}:
                 workflow["required_blocked"] = True
+            return False
+        return True
 
-        return [
-            make_tool_input_guardrail(
-                controller,
-                estimated_seconds=estimated_seconds,
-                optional=optional,
-                name=f"time_budget_{tool_name}",
-                on_reject=record_rejection,
-            )
-        ]
-
-    @function_tool(
-        tool_input_guardrails=guardrail("get_core_fact", case_core_delay),
-        timeout=max(case_core_delay * 3, 1.0),
-        is_enabled=lambda *_: not workflow["core_obtained"],
-    )
-    async def get_core_fact() -> str:
-        """Retrieve the fact required by the acceptance criteria."""
-
+    async def get_core_fact() -> None:
+        if not action_allowed("get_core_fact", case_core_delay):
+            return
         tool_events.append({"tool": "get_core_fact", "started": elapsed()})
         await asyncio.sleep(case_core_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["core_obtained"] = True
-        return (
-            f"WORKFLOW_STATE core_obtained=true verified=false; "
-            f"core_fact={case.core_fact}; continue with an enabled tool"
-        )
 
-    @function_tool(
-        tool_input_guardrails=guardrail(
-            "get_optional_fact", case_optional_delay, optional=True
-        ),
-        timeout=max(case_optional_delay * 3, 1.0),
-        is_enabled=lambda *_: (
-            workflow["core_obtained"]
-            and not workflow["verified"]
-            and not workflow["optional_closed"]
-        ),
-    )
-    async def get_optional_fact() -> str:
-        """Retrieve optional enrichment that is not required for acceptance."""
-
+    async def get_optional_fact() -> None:
+        if not action_allowed("get_optional_fact", case_optional_delay, optional=True):
+            return
         tool_events.append({"tool": "get_optional_fact", "started": elapsed()})
         await asyncio.sleep(case_optional_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["optional_obtained"] = True
         workflow["optional_closed"] = True
-        return (
-            f"WORKFLOW_STATE optional_obtained=true verified=false; "
-            f"optional_fact={case.optional_fact}; continue with an enabled tool"
-        )
 
-    @function_tool(
-        tool_input_guardrails=guardrail("verify_core_fact", case_verify_delay),
-        timeout=max(case_verify_delay * 3, 1.0),
-        is_enabled=lambda *_: workflow["core_obtained"] and not workflow["verified"],
-    )
-    async def verify_core_fact() -> str:
-        """Verify the required fact already retained by the host workflow."""
-
+    async def verify_core_fact() -> None:
+        if not action_allowed("verify_core_fact", case_verify_delay):
+            return
         tool_events.append({"tool": "verify_core_fact", "started": elapsed()})
         await asyncio.sleep(case_verify_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["verified"] = True
-        return (
-            f"WORKFLOW_STATE verified=true; "
-            f"verification_receipt={case.verification_receipt}; call submit_result"
-        )
 
-    @function_tool(
-        is_enabled=lambda *_: (
-            workflow["core_obtained"]
-            and not workflow["verified"]
-            and not workflow["checkpoint_reported"]
-        )
-    )
     def report_checkpoint(
         low_seconds: float,
         likely_seconds: float,
         high_seconds: float,
-    ) -> str:
-        """Report a progressive remaining-work range and receive the live budget action."""
-
+    ) -> None:
         nonlocal first_warning
         observed_elapsed = elapsed()
         event: dict[str, Any] = {
@@ -347,7 +334,8 @@ async def run_case(
             event["finished"] = elapsed()
             event["error"] = str(exc)
             tool_events.append(event)
-            return f"INVALID_CHECKPOINT: {exc}"
+            workflow["checkpoint_reported"] = True
+            return
         raw_checkpoints.append(
             {
                 "observed_elapsed_seconds": observed_elapsed,
@@ -361,7 +349,6 @@ async def run_case(
         tool_events.append(event)
         if state.get("action") not in (None, "continue") and first_warning is None:
             first_warning = observed_elapsed
-        return controller.model_context()
 
     def host_result() -> str:
         """Build the result only from host-observed workflow state."""
@@ -402,7 +389,6 @@ async def run_case(
         input_filter = record_and_inject
     run_config = RunConfig(
         tracing_disabled=True,
-        tool_execution=ToolExecutionConfig(max_function_tool_concurrency=1),
         call_model_input_filter=input_filter,
     )
     result_output = ""
@@ -415,15 +401,14 @@ async def run_case(
                 return host_result()
             if not workflow["core_obtained"]:
                 chosen_name = "get_core_fact"
-                chosen_tool = get_core_fact
             else:
-                available = {"verify_core_fact": verify_core_fact}
+                available = ["verify_core_fact"]
                 if not workflow["optional_closed"]:
-                    available["get_optional_fact"] = get_optional_fact
+                    available.append("get_optional_fact")
                 if not workflow["checkpoint_reported"]:
-                    available["report_checkpoint"] = report_checkpoint
+                    available.append("report_checkpoint")
                 if len(available) == 1:
-                    chosen_name, chosen_tool = next(iter(available.items()))
+                    chosen_name = available[0]
                 else:
                     option_names = list(available)
                     random.Random(sample_seed + step).shuffle(option_names)
@@ -449,17 +434,7 @@ async def run_case(
                         max_turns=1,
                     )
                     raw_selection = str(selection.final_output or "")
-                    matches = {
-                        name
-                        for name in available
-                        if re.search(rf"\b{re.escape(name)}\b", raw_selection)
-                    }
-                    if len(matches) != 1:
-                        raise RuntimeError(
-                            f"model returned ambiguous workflow action: {raw_selection!r}"
-                        )
-                    chosen_name = matches.pop()
-                    chosen_tool = available[chosen_name]
+                    chosen_name = parse_action_selection(raw_selection, available)
                     decision_events.append(
                         {
                             "elapsed_seconds": elapsed(),
@@ -468,50 +443,75 @@ async def run_case(
                             "raw_output": raw_selection,
                         }
                     )
-            step_prompt = (
-                user_prompt(case, budget_seconds)
-                + f"\n\nCall {chosen_name} now. Do not answer in text."
-            )
-            if chosen_name == "report_checkpoint":
-                step_prompt += (
-                    " Supply numeric low_seconds, likely_seconds, and high_seconds "
-                    "for the remaining workflow, with low <= likely <= high."
-                )
             before = (
                 tuple(workflow.items()),
                 len(tool_events),
                 len(rejected_tool_events),
             )
-            step_agent = Agent(
-                name=f"time-benchmark-{condition}-step-{step}",
-                instructions=instructions,
-                model=model,
-                model_settings=ModelSettings(
-                    temperature=0,
-                    tool_choice="required",
-                    parallel_tool_calls=False,
-                    extra_args={"seed": sample_seed},
-                ),
-                tools=[chosen_tool],
-                tool_use_behavior="stop_on_first_tool",
-                reset_tool_choice=False,
-            )
-            await Runner.run(
-                step_agent,
-                step_prompt,
-                run_config=run_config,
-                hooks=TimeBudgetHooks(controller),
-                max_turns=1,
-            )
+            if chosen_name == "report_checkpoint":
+                estimate_agent = Agent(
+                    name=f"time-benchmark-{condition}-estimate-{step}",
+                    instructions=instructions,
+                    model=model,
+                    model_settings=ModelSettings(
+                        temperature=0,
+                        extra_args={"seed": sample_seed},
+                    ),
+                )
+                estimate = await Runner.run(
+                    estimate_agent,
+                    user_prompt(case, budget_seconds)
+                    + "\n\nEstimate the remaining workflow duration in seconds. "
+                    "Return exactly three numbers: low likely high, with "
+                    "0 <= low <= likely <= high. Do not include any other numbers.",
+                    run_config=run_config,
+                    hooks=TimeBudgetHooks(controller),
+                    max_turns=1,
+                )
+                raw_estimate = str(estimate.final_output or "")
+                try:
+                    low, likely, high = parse_remaining_work_estimate(raw_estimate)
+                except ValueError as exc:
+                    workflow["checkpoint_reported"] = True
+                    tool_events.append(
+                        {
+                            "tool": "report_checkpoint",
+                            "started": elapsed(),
+                            "finished": elapsed(),
+                            "error": str(exc),
+                        }
+                    )
+                    decision_events.append(
+                        {
+                            "elapsed_seconds": elapsed(),
+                            "estimate_raw_output": raw_estimate,
+                            "estimate_error": str(exc),
+                        }
+                    )
+                else:
+                    decision_events.append(
+                        {
+                            "elapsed_seconds": elapsed(),
+                            "estimate_raw_output": raw_estimate,
+                            "estimate_seconds": [low, likely, high],
+                        }
+                    )
+                    report_checkpoint(low, likely, high)
+            elif chosen_name == "get_core_fact":
+                await get_core_fact()
+            elif chosen_name == "get_optional_fact":
+                await get_optional_fact()
+            elif chosen_name == "verify_core_fact":
+                await verify_core_fact()
+            else:  # pragma: no cover - names are constructed above
+                raise RuntimeError(f"unsupported workflow action: {chosen_name}")
             after = (
                 tuple(workflow.items()),
                 len(tool_events),
                 len(rejected_tool_events),
             )
             if after == before:
-                raise RuntimeError(
-                    "model returned without invoking an enabled workflow tool"
-                )
+                raise RuntimeError("selected workflow action did not change host state")
         raise RuntimeError("workflow exhausted max_turns before verification")
 
     try:
@@ -565,7 +565,7 @@ async def run_case(
         "model": model_name,
         "sample_seed": sample_seed,
         "tool_profile": (
-            f"ollama-tools-v3:core={case_core_delay}:"
+            f"ollama-host-actions-v4:core={case_core_delay}:"
             f"optional={case_optional_delay}:verify={case_verify_delay}"
         ),
         "budget_seconds": budget_seconds,
@@ -704,13 +704,12 @@ async def async_main(args: argparse.Namespace) -> int:
                 f"elapsed={record['actual_elapsed_seconds']:.2f}s",
                 file=sys.stderr,
             )
-    print(
-        json.dumps(
-            evaluate_pilot_advancement(records, expected_records=len(jobs)),
-            indent=2,
-            sort_keys=True,
-        )
+    evaluation = (
+        evaluate_pilot_advancement(records, expected_records=len(jobs))
+        if set(args.conditions) == set(CONDITIONS)
+        else evaluate_conditions(records)
     )
+    print(json.dumps(evaluation, indent=2, sort_keys=True))
     return 0
 
 

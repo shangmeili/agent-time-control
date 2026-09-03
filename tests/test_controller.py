@@ -132,6 +132,28 @@ class TimeBudgetControllerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(NewWorkWindowClosed, "does not fit"):
             self.controller.require_action_allowed(estimated_seconds=21, optional=False)
 
+    def test_optional_work_requires_a_current_forecast(self) -> None:
+        with self.assertRaisesRegex(NewWorkWindowClosed, "requires a current"):
+            self.controller.require_action_allowed(estimated_seconds=1, optional=True)
+
+        self.controller.update_forecast(10, 20, 30)
+        self.controller.require_action_allowed(estimated_seconds=1, optional=True)
+
+    def test_invalid_forecast_does_not_replace_last_valid_state(self) -> None:
+        valid = self.controller.update_forecast(10, 20, 30)
+        with self.assertRaises(ValueError):
+            self.controller.update_forecast(30, 20, 10)
+        after = self.controller.checkpoint()
+        self.assertEqual(
+            after["remaining_work_interval"],
+            {
+                "low_seconds": 10.0,
+                "likely_seconds": 20.0,
+                "high_seconds": 30.0,
+            },
+        )
+        self.assertEqual(after["action"], valid["action"])
+
     async def test_hard_deadline_cancels_local_awaitable(self) -> None:
         contract = TimeContract.relative(duration_seconds=0.05)
         controller = TimeBudgetController(contract)

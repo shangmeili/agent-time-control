@@ -2,6 +2,9 @@
 
 The frozen pilot hypotheses, advancement gate, limitations, and confirmatory
 analysis requirements are in [`EXPERIMENT_PROTOCOL.md`](EXPERIMENT_PROTOCOL.md).
+The retained first pilot and its failed gate are summarized in
+[`PILOT_V1_RESULTS.md`](PILOT_V1_RESULTS.md); its records must not be silently
+reclassified as successful runs.
 
 Mechanism tests do not prove that a language model delivers more useful work by a
 deadline. A release-level behavioral evaluation should compare matched conditions:

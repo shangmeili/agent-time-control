@@ -24,12 +24,14 @@ budget_guardrail = make_tool_input_guardrail(
     optional=True,
 )
 
+
 @function_tool(tool_input_guardrails=[budget_guardrail])
 def slow_search(): ...
 ```
 
 The guardrail rejects any action whose adjusted duration cannot fit before the
-reserve, and rejects optional tools whenever the current gate action is more
-restrictive than `continue`. `TimeBudgetHooks(controller)` remains an observer by
-default. Use `strict=True` only for fail-closed tool classes that cannot carry a
-recoverable input guardrail; an exception from a strict hook terminates the run.
+reserve. Optional tools additionally require a current remaining-work forecast
+and are rejected whenever the current gate action is more restrictive than
+`continue`. `TimeBudgetHooks(controller)` remains an observer by default. Use
+`strict=True` only for fail-closed tool classes that cannot carry a recoverable
+input guardrail; an exception from a strict hook terminates the run.

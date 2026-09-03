@@ -90,9 +90,7 @@ controller = TimeBudgetController(contract)
 controller.update_forecast(300, 480, 720)
 
 agent = Agent(name="worker", instructions="Deliver the required core first.")
-config = RunConfig(
-    call_model_input_filter=make_call_model_input_filter(controller)
-)
+config = RunConfig(call_model_input_filter=make_call_model_input_filter(controller))
 
 result = await controller.run_until_hard_deadline(
     Runner.run(

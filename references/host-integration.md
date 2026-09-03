@@ -23,6 +23,7 @@ while wall_clock < hard_deadline:
     run one bounded agent step
     validate and persist the step result
     require a new low/likely/high remaining-work interval
+    reject optional expansion until that interval is current
     compare the interval with remaining execution time in a deterministic gate
     update duration observations, feasibility, and forecast
 terminate active work at hard_deadline

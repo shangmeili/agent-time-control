@@ -96,6 +96,7 @@ Useful checkpoint triggers include completion of initial inspection, return from
 
 The model's self-estimate is advisory. A deterministic controller SHOULD compare the adjusted remaining-work interval with the remaining execution window:
 
+- no current remaining-work forecast and optional work is proposed → reject the optional work and request a checkpoint;
 - hard deadline reached → `stop`;
 - execution window exhausted but reserve remains → `verify_and_handoff`;
 - adjusted low exceeds the window → `reduce_scope_or_handoff`;

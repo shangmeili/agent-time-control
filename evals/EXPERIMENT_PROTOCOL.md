@@ -27,9 +27,11 @@ generalization, statistical significance, or T4 calibration.
   best-effort sampling seed.
 - Block execution order is randomized once from the recorded randomization seed.
 - Tool execution is serialized. The model is warmed before measurement.
-- The host runs one bounded model decision per workflow stage and accepts completion
-  only from observed tool state. This avoids depending on provider-specific
-  multi-turn `tool_choice` enforcement while preserving the model's choice among
+- The host runs one bounded model decision per workflow stage and directly executes
+  the selected synthetic action. A separate bounded model decision supplies the
+  three-number estimate after checkpoint selection. Completion is accepted only
+  from observed host state. This avoids depending on provider-specific multi-turn
+  `tool_choice` serialization while preserving the model's choice among
   checkpointing, optional work, and verification.
 - Three latency profiles are fixed before observing results: slow optional work,
   slow required-core work, and slow verification work.

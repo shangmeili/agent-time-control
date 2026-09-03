@@ -43,3 +43,23 @@ class OllamaRunnerTests(unittest.TestCase):
             for case in run_ollama.CASES
         }
         self.assertEqual(len(profiles), len(run_ollama.CASES))
+
+    def test_action_selection_requires_exactly_one_available_action(self) -> None:
+        available = ["verify_core_fact", "get_optional_fact"]
+        self.assertEqual(
+            run_ollama.parse_action_selection("verify_core_fact", available),
+            "verify_core_fact",
+        )
+        with self.assertRaises(ValueError):
+            run_ollama.parse_action_selection(
+                "verify_core_fact or get_optional_fact", available
+            )
+
+    def test_remaining_work_estimate_requires_three_ordered_numbers(self) -> None:
+        self.assertEqual(
+            run_ollama.parse_remaining_work_estimate("1.5 2 4"),
+            (1.5, 2.0, 4.0),
+        )
+        for invalid in ("1 2", "3 2 1", "-1 2 3", "1 2 3 4"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                run_ollama.parse_remaining_work_estimate(invalid)
