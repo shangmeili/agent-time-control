@@ -26,6 +26,8 @@ def record(run_id: str, condition: str, **overrides):
         "deadline_met": True,
         "verified_utility": 1.0,
         "first_infeasible_warning_elapsed_seconds": None,
+        "tool_events": [],
+        "rejected_tool_events": [],
         "checkpoints": [
             {
                 "estimate_low_seconds": 30,
@@ -138,6 +140,67 @@ class EvaluationTests(unittest.TestCase):
     def test_duplicate_run_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate run_id"):
             evaluate_conditions([record("same", "base"), record("same", "control")])
+
+    def test_regression_pilot_gate_rejects_execution_of_rejected_call(self) -> None:
+        records = complete_pilot_records()
+        bad = next(item for item in records if item["condition"] == "controller")
+        bad["rejected_tool_events"] = [
+            {"tool": "verify_core_fact", "call_id": "verify-1", "elapsed_seconds": 1.0}
+        ]
+        bad["tool_events"] = [
+            {"tool": "verify_core_fact", "call_id": "verify-1", "started": 2.0}
+        ]
+        result = evaluate_pilot_advancement(records, expected_records=36)
+        self.assertFalse(result["passed"], "gate accepted execution of a rejected call")
+
+    def test_rejection_of_one_call_does_not_reject_a_different_call(self) -> None:
+        records = complete_pilot_records()
+        item = next(row for row in records if row["condition"] == "controller")
+        item["rejected_tool_events"] = [
+            {"tool": "verify", "call_id": "rejected", "elapsed_seconds": 1}
+        ]
+        item["tool_events"] = [{"tool": "verify", "call_id": "allowed", "started": 2}]
+        self.assertTrue(
+            evaluate_pilot_advancement(records, expected_records=36)["passed"]
+        )
+
+    def test_legacy_rejection_traces_are_checked_by_tool_and_time(self) -> None:
+        for started, expected in ((0, True), (2, False)):
+            with self.subTest(started=started):
+                records = complete_pilot_records()
+                item = next(row for row in records if row["condition"] == "controller")
+                item["rejected_tool_events"] = [
+                    {"tool": "verify", "elapsed_seconds": 1}
+                ]
+                item["tool_events"] = [{"tool": "verify", "started": started}]
+                self.assertEqual(
+                    evaluate_pilot_advancement(records, expected_records=36)["passed"],
+                    expected,
+                )
+
+    def test_missing_controller_tool_evidence_fails_pilot_gate(self) -> None:
+        records = complete_pilot_records()
+        item = next(row for row in records if row["condition"] == "controller")
+        del item["tool_events"]
+        result = evaluate_pilot_advancement(records, expected_records=36)
+        self.assertFalse(result["passed"])
+        self.assertEqual(
+            result["diagnostics"]["controller_missing_tool_evidence_run_ids"],
+            [item["run_id"]],
+        )
+
+    def test_malformed_tool_evidence_is_rejected(self) -> None:
+        for events in (
+            None,
+            [None],
+            [{"tool": "verify", "started": -1}],
+            [{"tool": "verify", "started": 1, "call_id": ""}],
+        ):
+            with (
+                self.subTest(events=events),
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                evaluate_conditions([record("bad", "controller", tool_events=events)])
 
     def test_pilot_advancement_gate_passes_complete_paired_records(self) -> None:
         records = complete_pilot_records()

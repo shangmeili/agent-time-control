@@ -90,3 +90,12 @@ sampling is best-effort rather than proof of bit-for-bit reproducibility. The
 evaluator rejects missing task-condition cells, unequal repetition counts, and
 model/tool/budget mismatches. A small local model is useful for integration evidence
 but cannot establish generalization to frontier or hosted models.
+
+The current runner uses tool profile `ollama-host-actions-v5`. Required verification
+can use the reserve, and each attempted workflow action has a `call_id` shared by
+its gate observation and any execution record. The pilot gate requires both
+`tool_events` and `rejected_tool_events` for controller runs and rejects execution
+of the same rejected call. Retained traces without invocation IDs are checked
+conservatively by tool name and event time; they cannot distinguish a later,
+separately authorized retry of the same tool. Historical v1/v2 records and reports
+remain unchanged and must not be mixed with new v5 runs as one matched experiment.

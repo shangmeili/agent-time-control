@@ -46,6 +46,23 @@ def _validate_record(record: dict[str, Any], index: int) -> None:
     warning = record.get("first_infeasible_warning_elapsed_seconds")
     if warning is not None:
         _number(record, "first_infeasible_warning_elapsed_seconds", index)
+    for field, time_field in (
+        ("tool_events", "started"),
+        ("rejected_tool_events", "elapsed_seconds"),
+    ):
+        events = record.get(field, [])
+        if not isinstance(events, list):
+            raise TypeError(f"record {index}: {field} must be an array")
+        for event in events:
+            if not isinstance(event, dict):
+                raise TypeError(f"record {index}: {field} entries must be objects")
+            if not isinstance(event.get("tool"), str) or not event["tool"]:
+                raise ValueError(f"record {index}: event tool must be non-empty")
+            _number(event, time_field, index)
+            if "call_id" in event and (
+                not isinstance(event["call_id"], str) or not event["call_id"]
+            ):
+                raise ValueError(f"record {index}: event call_id must be non-empty")
     checkpoints = record.get("checkpoints", [])
     if not isinstance(checkpoints, list):
         raise TypeError(f"record {index}: checkpoints must be an array")
@@ -227,6 +244,24 @@ def evaluate_conditions(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _executed_rejected_call(record: dict[str, Any]) -> bool:
+    """Match invocation IDs; conservatively check timing for retained legacy traces."""
+
+    for rejected in record.get("rejected_tool_events", []):
+        for executed in record.get("tool_events", []):
+            rejected_id = rejected.get("call_id")
+            executed_id = executed.get("call_id")
+            if rejected_id is not None and executed_id is not None:
+                if rejected_id == executed_id:
+                    return True
+            elif (
+                rejected["tool"] == executed["tool"]
+                and executed["started"] >= rejected["elapsed_seconds"]
+            ):
+                return True
+    return False
+
+
 def evaluate_pilot_advancement(
     records: list[dict[str, Any]],
     *,
@@ -280,6 +315,17 @@ def evaluate_pilot_advancement(
         record["run_id"] for record in controller_records if record.get("error")
     ]
 
+    controller_rejected_executions = [
+        record["run_id"]
+        for record in controller_records
+        if _executed_rejected_call(record)
+    ]
+    controller_missing_tool_evidence = [
+        record["run_id"]
+        for record in controller_records
+        if "tool_events" not in record or "rejected_tool_events" not in record
+    ]
+
     checks = {
         "all_planned_records_retained": len(records) == expected_records,
         "minimum_records_reached": len(records) >= minimum_records,
@@ -300,6 +346,8 @@ def evaluate_pilot_advancement(
         "paired_design": evaluation["paired_design"] is True,
         "controller_returned_within_deadline_tolerance": not controller_late_returns,
         "no_controller_harness_errors": not controller_errors,
+        "controller_tool_evidence_present": not controller_missing_tool_evidence,
+        "no_execution_of_rejected_calls": not controller_rejected_executions,
         "utility_regression_within_tolerance": (
             controller_utility >= base_utility - utility_regression_tolerance
         ),
@@ -322,6 +370,8 @@ def evaluate_pilot_advancement(
         "diagnostics": {
             "controller_late_return_run_ids": controller_late_returns,
             "controller_error_run_ids": controller_errors,
+            "controller_rejected_execution_run_ids": controller_rejected_executions,
+            "controller_missing_tool_evidence_run_ids": controller_missing_tool_evidence,
             "base_complete": base_complete,
             "controller_complete": controller_complete,
             "base_utility_mean": base_utility,

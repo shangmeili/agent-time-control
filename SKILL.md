@@ -1,6 +1,8 @@
 ---
 name: time-aware-execution
-description: Plan, estimate, and execute deadline-constrained work using a real clock, calibrated ranges, checkpoints, and explicit scope tradeoffs. Use when a user gives a deadline or timebox, asks for an ETA or duration estimate, or needs reliable progress against elapsed wall-clock time; this skill does not itself create scheduled wakeups.
+description: Plan, estimate, and execute deadline-constrained work using a real clock, evidence-based duration ranges, checkpoints, and explicit scope tradeoffs. Use when a user gives a deadline or timebox, asks for an ETA or duration estimate, or needs reliable progress against elapsed wall-clock time; this skill does not itself create scheduled wakeups.
+license: Apache-2.0
+compatibility: Python 3.10+ for bundled scripts. Optional MCP 2.2.x and OpenAI Agents SDK 0.22.x. POSIX process-group cleanup; Windows direct-process cleanup only.
 ---
 
 # Time Aware Execution
@@ -8,6 +10,19 @@ description: Plan, estimate, and execute deadline-constrained work using a real 
 Treat time as external state, not intuition. The objective is a useful result before the deadline with an honest account of uncertainty—not a confident-looking timestamp.
 
 This Skill is the on-demand adapter for the repository's always-on [Time Awareness Standard](TIME_AWARENESS_STANDARD.md). If the host already injects that baseline, use this Skill for its detailed workflow and bundled tools rather than duplicating policy text.
+
+## Select the execution path
+
+Resolve every bundled script/reference relative to this SKILL.md, never the target
+project's working directory. Use quoted absolute script paths when working elsewhere.
+Confirm Python 3.10+ with the chosen interpreter. For installation/self-test and
+supported runtime behavior read [installation and operations](INSTALL.md).
+
+Use existing host clock/MCP tools when available. Otherwise run bundled clock and
+gate scripts. Do not install packages, start a server or write timing history merely
+to activate this Skill. Ordinary tasks without a meaningful time constraint need no
+extra checkpoint loop. A future reminder belongs to the host scheduler; do not keep
+a process alive with a sleep loop.
 
 ## Establish the time contract
 
@@ -62,6 +77,10 @@ Use the report's sample size, completion rate, completed-run P50/P80, and error 
 
 If the user requests one number, give a planning figure only after giving the range, and identify whether it is the median-like working estimate or a conservative commitment bound. Never imply a statistical confidence level when there is no calibrated historical distribution.
 
+Before asking a model for three numbers, supply the completed steps, the remaining required and optional steps, measured tool durations, and observed model-call latency. Define the forecast origin and include future model calls, queues and handoff. Never copy the time budget into a duration estimate or cap an estimate to make it fit.
+
+For a known serial plan with comparable measurements, use MCP `forecast_remaining` or `python3 scripts/forecast_remaining.py --input <request.json>`. Prefer the returned observed-data estimate to unsupported model arithmetic. If the result has insufficient evidence, report the missing measurements rather than inventing a range. Resupply the remaining plan after each material change. See [remaining-work forecasting](references/forecasting.md) for the request format and independent evaluation.
+
 ## Plan backward from the deadline
 
 Reserve enough time for integration, verification, and reporting in proportion to failure cost. Then select the smallest scope that satisfies the acceptance test within the remaining execution window.
@@ -86,6 +105,8 @@ python3 scripts/budget_gate.py \
 
 Follow `stop` and `verify_and_handoff`. Treat the other actions as strong control signals, then apply task-specific safety and acceptance constraints. Never reduce scope silently. Because model-produced intervals can be optimistic, do not override an adverse gate result merely by generating a new unsupported interval.
 
+In host-integrated runs, ordinary work stops at `work_deadline`. The host can designate required verification and handoff tools with `action_kind="verification"` or `action_kind="handoff"` so they can use the reserve before the hard deadline. This designation belongs to host configuration, not model-selected tool arguments; optional work must not use the reserve.
+
 Prefer an early vertical slice or decisive experiment that reduces uncertainty. Do not spend most of the budget planning an untested full solution.
 
 ## Execute with feedback
@@ -108,7 +129,7 @@ python3 scripts/deadline_run.py \
   [--reserve-seconds <seconds>] -- <command> [args...]
 ```
 
-Exit code `124` means the command was not started or was terminated at its limit. This wrapper does not authorize the command, undo its side effects, constrain remote work after cancellation, or preempt model inference and tools controlled by another host.
+Exit code `124` means no execution budget remained or timeout cleanup was performed. On POSIX, cleanup targets the isolated process group, including children left by an exited leader; it escalates from termination to kill after `--grace-seconds` (default 2 seconds). This grace period is additional cleanup time, not part of the execution budget. Children that create a separate session are outside that group; on other platforms only the direct process is terminated. This wrapper does not authorize the command, undo its side effects, constrain remote work after cancellation, or preempt model inference and tools controlled by another host.
 
 When time tightens, degrade in this order unless the user specified otherwise:
 
@@ -130,7 +151,7 @@ Lead with the delivered result and verification status. Then report:
 - deferred scope and why;
 - whether the deadline was met, missed, or cannot be verified.
 
-Record observed durations when a durable project-local mechanism already exists and the user has authorized writing to it. Never invent historical timings or create persistent memory implicitly.
+Record observed durations when a durable project-local mechanism already exists and the user has authorized writing to it. Never invent historical timings or create persistent memory implicitly. For host code, use the opt-in `TimingRecorder` shown in [forecasting](references/forecasting.md) and [the offline integration example](examples/local_workflow.py). It records monotonic durations and outcomes without payloads. Invalidate the current forecast after the plan changes; do not reuse an old forecast as proof that optional work fits.
 
 ## Route scheduling separately
 

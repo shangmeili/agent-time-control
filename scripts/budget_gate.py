@@ -7,13 +7,14 @@ import argparse
 import json
 import math
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_time_control.core import (
     build_snapshot,
+    create_timebox,
     decide,
 )
 from agent_time_control.core import parse_timestamp as _parse_timestamp
@@ -76,31 +77,31 @@ def main() -> int:
 
     now = args.now or datetime.now(timezone.utc)
     started_at = args.started_at
-    if args.duration_minutes is not None:
-        started_at = started_at or now
-        deadline = started_at + timedelta(minutes=args.duration_minutes)
-        snapshot = build_snapshot(
-            deadline=deadline,
-            now=now,
-            started_at=started_at,
-            reserve_seconds=args.reserve_minutes * 60,
-        )
-    else:
+    try:
         deadline = args.deadline
-        assert deadline is not None
+        if args.duration_minutes is not None:
+            started_at = started_at or now
+            box = create_timebox(
+                duration_seconds=args.duration_minutes * 60,
+                now=started_at,
+                reserve_seconds=args.reserve_minutes * 60,
+            )
+            deadline = _parse_timestamp(box["deadline"])
         snapshot = build_snapshot(
             deadline=deadline,
             now=now,
             started_at=started_at,
             reserve_seconds=args.reserve_minutes * 60,
         )
-    result = decide(
-        snapshot,
-        low_seconds=args.estimate_low_seconds,
-        likely_seconds=args.estimate_likely_seconds,
-        high_seconds=args.estimate_high_seconds,
-        multiplier=args.calibration_multiplier,
-    )
+        result = decide(
+            snapshot,
+            low_seconds=args.estimate_low_seconds,
+            likely_seconds=args.estimate_likely_seconds,
+            high_seconds=args.estimate_high_seconds,
+            multiplier=args.calibration_multiplier,
+        )
+    except (ValueError, OverflowError) as exc:
+        parser.error(str(exc))
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0

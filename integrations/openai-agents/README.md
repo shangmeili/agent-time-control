@@ -29,9 +29,29 @@ budget_guardrail = make_tool_input_guardrail(
 def slow_search(): ...
 ```
 
-The guardrail rejects any action whose adjusted duration cannot fit before the
-reserve. Optional tools additionally require a current remaining-work forecast
+By default, the guardrail rejects work whose adjusted duration cannot fit before
+the reserve. Optional tools additionally require a current remaining-work forecast
 and are rejected whenever the current gate action is more restrictive than
 `continue`. `TimeBudgetHooks(controller)` remains an observer by default. Use
 `strict=True` only for fail-closed tool classes that cannot carry a recoverable
 input guardrail; an exception from a strict hook terminates the run.
+
+Designate required verification or handoff tools in host configuration so they can
+use the reserve without admitting new work:
+
+```python
+verify_guardrail = make_tool_input_guardrail(
+    controller,
+    estimated_seconds=5,
+    action_kind="verification",
+)
+
+@function_tool(tool_input_guardrails=[verify_guardrail])
+def verify_result(): ...
+```
+
+Use `action_kind="handoff"` for a final handoff tool. Both kinds must fit before
+the hard deadline and are rejected after expiry. Optional work cannot claim either
+kind. For strict hooks, the equivalent host setting is
+`tool_action_kinds={"verify_result": "verification", "submit_result": "handoff"}`.
+Action kinds are host policy; do not expose them as model-selectable tool arguments.

@@ -18,6 +18,7 @@ from agents.tool_guardrails import ToolGuardrailFunctionOutput, tool_input_guard
 from agents import RunHooks
 
 from ..controller import (
+    ActionKind,
     HardDeadlineReached,
     NewWorkWindowClosed,
     TimeBudgetController,
@@ -32,11 +33,13 @@ class TimeBudgetHooks(RunHooks[Any]):
         strict: bool = False,
         tool_estimated_seconds: dict[str, float] | None = None,
         optional_tool_names: set[str] | None = None,
+        tool_action_kinds: dict[str, ActionKind] | None = None,
     ) -> None:
         self.controller = controller
         self.strict = strict
         self.tool_estimated_seconds = tool_estimated_seconds or {}
         self.optional_tool_names = optional_tool_names or set()
+        self.tool_action_kinds = tool_action_kinds or {}
         self.last_state: dict[str, object] | None = None
 
     async def on_tool_start(self, context: Any, agent: Any, tool: Any) -> None:
@@ -47,6 +50,7 @@ class TimeBudgetHooks(RunHooks[Any]):
         self.controller.require_action_allowed(
             estimated_seconds=self.tool_estimated_seconds.get(tool_name, 0.0),
             optional=tool_name in self.optional_tool_names,
+            action_kind=self.tool_action_kinds.get(tool_name, "work"),
         )
 
 
@@ -55,6 +59,7 @@ def make_tool_input_guardrail(
     *,
     estimated_seconds: float = 0.0,
     optional: bool = False,
+    action_kind: ActionKind = "work",
     name: str = "time_budget_guardrail",
     on_reject: Callable[[str], None] | None = None,
 ):
@@ -66,6 +71,7 @@ def make_tool_input_guardrail(
             state = controller.require_action_allowed(
                 estimated_seconds=estimated_seconds,
                 optional=optional,
+                action_kind=action_kind,
             )
         except (HardDeadlineReached, NewWorkWindowClosed) as exc:
             message = (

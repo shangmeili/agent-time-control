@@ -1,0 +1,12 @@
+include LICENSE README.md SKILL.md TIME_AWARENESS_STANDARD.md CONFORMANCE.md INSTALL.md CHANGELOG.md SECURITY.md
+recursive-include agents *.yaml
+recursive-include scripts *.py
+recursive-include references *.md
+recursive-include schemas *.json
+recursive-include examples *.py *.json
+recursive-include integrations *.md *.json *.snippet
+recursive-include tests *.py
+recursive-include evals *.py *.md
+recursive-include evals/results *.json *.jsonl
+include .github/workflows/test.yml
+global-exclude *.pyc __pycache__ .DS_Store

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import selectors
+import signal
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -13,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from budget_gate import decide
 from deadline_clock import build_snapshot, parse_timestamp
+from deadline_run import stop_process
 
 
 def run_script(
@@ -180,6 +185,101 @@ class CalibrationReportTests(unittest.TestCase):
 
 
 class DeadlineRunTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_regression_cleanup_kills_descendant_after_leader_exits(self) -> None:
+        child = (
+            "import signal, time; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            "print('ready', flush=True); time.sleep(30)"
+        )
+        parent = (
+            "import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(30)"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", parent],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        assert process.stdout is not None
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                self.assertTrue(
+                    selector.select(timeout=5), "child did not become ready"
+                )
+                self.assertEqual(process.stdout.readline(), b"ready\n")
+                stop_process(process, grace_seconds=0.05)
+                self.assertIsNotNone(process.poll())
+                self.assertTrue(
+                    selector.select(timeout=1),
+                    "descendant survived cleanup and still holds its output pipe",
+                )
+                self.assertEqual(process.stdout.read(), b"")
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=5)
+            process.stdout.close()
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_cleanup_checks_group_when_leader_already_exited(self) -> None:
+        process = Mock(pid=123456)
+        process.poll.return_value = 0
+        with (
+            patch("deadline_run.os.killpg") as killpg,
+            patch("deadline_run.time.monotonic", side_effect=[0, 1]),
+        ):
+            stop_process(process, grace_seconds=0.05)
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                call(123456, signal.SIGTERM),
+                call(123456, 0),
+                call(123456, signal.SIGKILL),
+            ],
+        )
+        process.wait.assert_called_once()
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_cleanup_tolerates_group_disappearing_before_kill(self) -> None:
+        process = Mock(pid=123456)
+        with (
+            patch(
+                "deadline_run.os.killpg", side_effect=[None, None, ProcessLookupError]
+            ),
+            patch("deadline_run.time.monotonic", side_effect=[0, 1]),
+        ):
+            stop_process(process, grace_seconds=0.05)
+        process.wait.assert_called_once()
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_cleanup_probe_permission_error_still_attempts_kill(self) -> None:
+        process = Mock(pid=123456)
+        with (
+            patch(
+                "deadline_run.os.killpg", side_effect=[None, PermissionError, None]
+            ) as killpg,
+            patch("deadline_run.time.monotonic", side_effect=[0, 1]),
+        ):
+            stop_process(process, grace_seconds=0.05)
+        self.assertEqual(killpg.call_args_list[-1], call(123456, signal.SIGKILL))
+        process.wait.assert_called_once()
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_cleanup_never_hides_permission_error_from_termination(self) -> None:
+        process = Mock(pid=123456)
+        with (
+            patch("deadline_run.os.killpg", side_effect=[None, None, PermissionError]),
+            patch("deadline_run.time.monotonic", side_effect=[0, 1]),
+            self.assertRaises(PermissionError),
+        ):
+            stop_process(process, grace_seconds=0.05)
+        process.wait.assert_not_called()
+
     def test_fast_command_preserves_exit_code_and_output(self) -> None:
         result = run_script(
             "deadline_run.py",
@@ -205,7 +305,7 @@ class DeadlineRunTests(unittest.TestCase):
             "-c",
             "import time; time.sleep(5)",
         )
-        self.assertEqual(result.returncode, 124)
+        self.assertEqual(result.returncode, 124, result.stderr)
         self.assertIn('"deadline_run": "timed_out"', result.stderr)
 
     def test_past_deadline_does_not_launch_command(self) -> None:

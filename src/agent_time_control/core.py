@@ -7,12 +7,14 @@ They accept an observed clock value so tests and host adapters can be determinis
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def parse_timestamp(value: str) -> datetime:
     """Parse an ISO-8601 timestamp that identifies an exact instant."""
 
+    if not isinstance(value, str):
+        raise TypeError("timestamp must be a string")
     normalized = value.strip()
     if normalized.endswith(("Z", "z")):
         normalized = normalized[:-1] + "+00:00"
@@ -26,21 +28,34 @@ def parse_timestamp(value: str) -> datetime:
 
 
 def _finite_nonnegative(value: float, field: str) -> float:
-    number = float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field} must be numeric, not boolean or text")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{field} is outside the supported numeric range") from exc
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field} must be finite and non-negative")
     return number
 
 
 def _require_aware(value: datetime, field: str) -> None:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError(f"{field} must include timezone information")
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() is None
+    ):
+        raise ValueError(f"{field} must be a datetime with timezone information")
 
 
 def _conservative_seconds(later: datetime, earlier: datetime) -> int:
     """Return whole seconds without ever overstating the remaining budget."""
 
-    return math.floor((later - earlier).total_seconds())
+    return math.floor(
+        (
+            later.astimezone(timezone.utc) - earlier.astimezone(timezone.utc)
+        ).total_seconds()
+    )
 
 
 def build_snapshot(
@@ -58,13 +73,23 @@ def build_snapshot(
     if started_at is not None:
         _require_aware(started_at, "started_at")
     reserve_value = _finite_nonnegative(reserve_seconds, "reserve_seconds")
-    if not clock_source:
+    if not isinstance(clock_source, str) or not clock_source.strip():
         raise ValueError("clock_source must be non-empty")
-
-    reserve = timedelta(seconds=reserve_value)
-    work_deadline = deadline - reserve
-    raw_remaining = (deadline - now).total_seconds()
-    raw_execution_remaining = (work_deadline - now).total_seconds()
+    deadline_utc = deadline.astimezone(timezone.utc)
+    now_utc = now.astimezone(timezone.utc)
+    if started_at is not None:
+        total = (deadline_utc - started_at.astimezone(timezone.utc)).total_seconds()
+        if total <= 0 or reserve_value > total:
+            raise ValueError(
+                "deadline must follow started_at and reserve must fit the total budget"
+            )
+    try:
+        work_deadline_utc = deadline_utc - timedelta(seconds=reserve_value)
+        work_deadline = work_deadline_utc.astimezone(deadline.tzinfo)
+    except OverflowError as exc:
+        raise ValueError("reserve exceeds the supported datetime range") from exc
+    raw_remaining = (deadline_utc - now_utc).total_seconds()
+    raw_execution_remaining = (work_deadline_utc - now_utc).total_seconds()
     remaining = _conservative_seconds(deadline, now)
     execution_remaining = _conservative_seconds(work_deadline, now)
 
@@ -90,7 +115,7 @@ def build_snapshot(
 
     if started_at is not None:
         total_budget = _conservative_seconds(deadline, started_at)
-        elapsed = math.floor((now - started_at).total_seconds())
+        elapsed = _conservative_seconds(now, started_at)
         payload.update(
             {
                 "started_at": started_at.isoformat(),
@@ -118,7 +143,12 @@ def create_timebox(
         raise ValueError("duration_seconds must be positive")
     if reserve > duration:
         raise ValueError("reserve_seconds must not exceed duration_seconds")
-    deadline = now + timedelta(seconds=duration)
+    try:
+        deadline = (
+            now.astimezone(timezone.utc) + timedelta(seconds=duration)
+        ).astimezone(now.tzinfo)
+    except OverflowError as exc:
+        raise ValueError("duration exceeds the supported datetime range") from exc
     return build_snapshot(
         deadline=deadline,
         now=now,
@@ -152,10 +182,12 @@ def decide(
         "likely_seconds": likely * multiplier_value,
         "high_seconds": high * multiplier_value,
     }
+    if not all(math.isfinite(value) for value in adjusted.values()):
+        raise ValueError("adjusted estimates exceed the supported numeric range")
     try:
         execution_remaining = int(snapshot["execution_remaining_seconds"])
         phase = snapshot["phase"]
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("snapshot is missing valid phase or execution budget") from exc
 
     if phase == "expired":

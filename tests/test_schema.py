@@ -5,6 +5,7 @@ import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -19,6 +20,36 @@ except ImportError:
 
 
 class CoreBoundaryTests(unittest.TestCase):
+    def test_regression_dst_timebox_preserves_elapsed_duration(self) -> None:
+        start = datetime(2026, 11, 1, 0, 30, tzinfo=ZoneInfo("America/New_York"))
+        state = create_timebox(duration_seconds=7200, now=start)
+        deadline = datetime.fromisoformat(state["deadline"])
+        self.assertEqual(deadline.timestamp() - start.timestamp(), 7200)
+        self.assertEqual(state["remaining_seconds"], 7200)
+
+    def test_regression_dst_snapshot_handles_repeated_hour(self) -> None:
+        zone = ZoneInfo("America/New_York")
+        start = datetime(2026, 11, 1, 0, 30, tzinfo=zone)
+        now = datetime(2026, 11, 1, 1, 50, tzinfo=zone, fold=0)
+        deadline = datetime(2026, 11, 1, 1, 10, tzinfo=zone, fold=1)
+        state = build_snapshot(
+            deadline=deadline, now=now, started_at=start, reserve_seconds=600
+        )
+        self.assertEqual(state["remaining_seconds"], 1200)
+        self.assertEqual(state["execution_remaining_seconds"], 600)
+        self.assertEqual(state["elapsed_seconds"], 4800)
+        self.assertEqual(state["total_budget_seconds"], 6000)
+        self.assertEqual(state["phase"], "execute")
+
+    def test_spring_forward_timebox_preserves_reserve_duration(self) -> None:
+        start = datetime(2026, 3, 8, 1, 30, tzinfo=ZoneInfo("America/New_York"))
+        state = create_timebox(duration_seconds=7200, reserve_seconds=1800, now=start)
+        deadline = datetime.fromisoformat(state["deadline"])
+        work_deadline = datetime.fromisoformat(state["work_deadline"])
+        self.assertEqual(deadline.timestamp() - start.timestamp(), 7200)
+        self.assertEqual(deadline.timestamp() - work_deadline.timestamp(), 1800)
+        self.assertEqual(state["execution_remaining_seconds"], 5400)
+
     def test_fractional_time_does_not_cross_deadline_early(self) -> None:
         deadline = datetime.fromisoformat("2026-09-02T12:00:00+00:00")
         before = build_snapshot(

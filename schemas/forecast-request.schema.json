@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Remaining serial work forecast request",
+  "type": "object",
+  "required": ["reference_class", "remaining_steps", "observations"],
+  "properties": {
+    "reference_class": {"type": "string", "minLength": 1},
+    "remaining_steps": {"type": "array", "maxItems": 1000, "items": {"type": "string", "minLength": 1}},
+    "observations": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "required": ["reference_class", "operation", "elapsed_seconds", "outcome"],
+        "properties": {
+          "observation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "reference_class": {"type": "string", "minLength": 1},
+          "operation": {"type": "string", "minLength": 1},
+          "elapsed_seconds": {"type": "number", "minimum": 0},
+          "outcome": {"enum": ["complete", "partial", "failed", "timed_out"]}
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -6,6 +6,7 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -153,6 +154,115 @@ class TimeBudgetControllerTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(after["action"], valid["action"])
+
+    def test_reserve_actions_fit_hard_deadline_and_keep_work_blocked(self) -> None:
+        self.clock.value = self.start + timedelta(seconds=85)
+        for kind in ("verification", "handoff"):
+            with self.subTest(kind=kind):
+                state = self.controller.require_action_allowed(
+                    estimated_seconds=10, action_kind=kind
+                )
+                self.assertEqual(state["phase"], "reserve")
+                with self.assertRaisesRegex(NewWorkWindowClosed, "hard deadline"):
+                    self.controller.require_action_allowed(
+                        estimated_seconds=16, action_kind=kind
+                    )
+        with self.assertRaises(NewWorkWindowClosed):
+            self.controller.require_action_allowed(estimated_seconds=1)
+        self.clock.value = self.start + timedelta(seconds=100)
+        for kind in ("work", "verification", "handoff"):
+            with (
+                self.subTest(expired_kind=kind),
+                self.assertRaises(HardDeadlineReached),
+            ):
+                self.controller.require_action_allowed(action_kind=kind)
+
+    def test_optional_work_cannot_claim_reserve_and_unknown_kind_is_rejected(
+        self,
+    ) -> None:
+        for kind in ("verification", "handoff", "unknown"):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                self.controller.require_action_allowed(optional=True, action_kind=kind)
+
+    def test_contract_uses_absolute_instants_across_dst(self) -> None:
+        zone = ZoneInfo("America/New_York")
+        for start in (
+            datetime(2026, 3, 8, 1, 30, tzinfo=zone),
+            datetime(2026, 11, 1, 0, 30, tzinfo=zone),
+        ):
+            with self.subTest(start=start):
+                contract = TimeContract.relative(7200, now=start)
+                self.assertEqual(
+                    contract.deadline.timestamp() - contract.started_at.timestamp(),
+                    7200,
+                )
+        early = datetime(2026, 11, 1, 1, 50, tzinfo=zone, fold=0)
+        late = datetime(2026, 11, 1, 1, 10, tzinfo=zone, fold=1)
+        contract = TimeContract(early, late, reserve_seconds=600)
+        self.assertEqual(
+            TimeBudgetController(contract, clock=lambda: early).snapshot()[
+                "remaining_seconds"
+            ],
+            1200,
+        )
+        with self.assertRaises(ValueError):
+            TimeContract(late, early)
+
+    async def test_expired_wrapper_cancels_future_and_closes_unstarted_coroutine(
+        self,
+    ) -> None:
+        self.clock.value = self.start + timedelta(seconds=101)
+        future = asyncio.get_running_loop().create_future()
+        with self.assertRaises(HardDeadlineReached):
+            await self.controller.run_until_hard_deadline(future)
+        self.assertTrue(future.cancelled())
+        called = False
+
+        async def work() -> None:
+            nonlocal called
+            called = True
+
+        coroutine = work()
+        with self.assertRaises(HardDeadlineReached):
+            await self.controller.run_until_hard_deadline(coroutine)
+        self.assertIsNone(coroutine.cr_frame)
+        self.assertFalse(called)
+
+    async def test_cancelling_wrapper_requests_child_cancellation(self) -> None:
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def work() -> None:
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            finally:
+                cancelled.set()
+
+        wrapper = asyncio.create_task(self.controller.run_until_hard_deadline(work()))
+        await started.wait()
+        wrapper.cancel()
+        await asyncio.gather(wrapper, return_exceptions=True)
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+    async def test_regression_expired_wrapper_cancels_running_task(self) -> None:
+        started = asyncio.Event()
+
+        async def work() -> None:
+            started.set()
+            await asyncio.sleep(30)
+
+        task = asyncio.create_task(work())
+        await started.wait()
+        self.clock.value = self.start + timedelta(seconds=101)
+        try:
+            with self.assertRaises(HardDeadlineReached):
+                await self.controller.run_until_hard_deadline(task)
+            await asyncio.sleep(0)
+            self.assertTrue(task.cancelled(), "expired wrapper left its task running")
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def test_hard_deadline_cancels_local_awaitable(self) -> None:
         contract = TimeContract.relative(duration_seconds=0.05)
@@ -326,6 +436,86 @@ class OpenAIAgentsAdapterTests(unittest.IsolatedAsyncioTestCase):
                 hooks=hooks,
             )
         self.assertFalse(called)
+
+    async def test_reserve_verification_through_real_runner(self) -> None:
+        self.clock.value = self.start + timedelta(seconds=85)
+        called: list[str] = []
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                called.clear()
+                guardrail = make_tool_input_guardrail(
+                    self.controller, estimated_seconds=1, action_kind="verification"
+                )
+
+                @function_tool(tool_input_guardrails=[] if strict else [guardrail])
+                def verify() -> str:
+                    called.append("verified")
+                    return "verified"
+
+                model = ScriptedModel(
+                    [
+                        [
+                            ResponseFunctionToolCall(
+                                arguments="{}",
+                                call_id="verify-1",
+                                name="verify",
+                                type="function_call",
+                            )
+                        ],
+                        [text_output("verified handoff")],
+                    ]
+                )
+                result = await Runner.run(
+                    Agent(name="test", model=model, tools=[verify]),
+                    "verify and hand off",
+                    run_config=RunConfig(
+                        tracing_disabled=True,
+                        call_model_input_filter=make_call_model_input_filter(
+                            self.controller
+                        ),
+                    ),
+                    hooks=TimeBudgetHooks(
+                        self.controller,
+                        strict=strict,
+                        tool_estimated_seconds={"verify": 1},
+                        tool_action_kinds={"verify": "verification"},
+                    ),
+                )
+                self.assertEqual(called, ["verified"])
+                self.assertEqual(result.final_output, "verified handoff")
+
+    async def test_guardrail_rejects_verification_at_hard_deadline(self) -> None:
+        self.clock.value = self.start + timedelta(seconds=100)
+        called = []
+        guardrail = make_tool_input_guardrail(
+            self.controller, action_kind="verification"
+        )
+
+        @function_tool(tool_input_guardrails=[guardrail])
+        def verify() -> str:
+            called.append("must not run")
+            return "invalid"
+
+        model = ScriptedModel(
+            [
+                [
+                    ResponseFunctionToolCall(
+                        arguments="{}",
+                        call_id="expired-1",
+                        name="verify",
+                        type="function_call",
+                    )
+                ],
+                [text_output("stopped")],
+            ]
+        )
+        result = await Runner.run(
+            Agent(name="test", model=model, tools=[verify]),
+            "verify",
+            run_config=RunConfig(tracing_disabled=True),
+        )
+        self.assertEqual(called, [])
+        self.assertEqual(result.final_output, "stopped")
 
     async def test_guardrail_rejects_tool_but_allows_handoff_response(self) -> None:
         called = False

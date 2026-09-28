@@ -33,6 +33,7 @@ class MCPIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "check_deadline",
                     "evaluate_checkpoint",
                     "summarize_calibration",
+                    "forecast_remaining",
                 },
             )
             started = await client.call_tool(
@@ -63,6 +64,85 @@ class MCPIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(stopped.is_error)
             assert stopped.structured_content is not None
             self.assertEqual(stopped.structured_content["action"], "stop")
+
+    async def test_forecast_tool_returns_evidence_and_missing_history(self) -> None:
+        assert Client is not None and mcp is not None
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "agent_time_control.mcp_server"],
+            env={"PYTHONPATH": str(SRC)},
+        )
+        async with Client(params) as client:
+            arguments = {
+                "reference_class": "test-model-host",
+                "remaining_steps": ["verify"],
+                "observations": [],
+            }
+            missing = await client.call_tool("forecast_remaining", arguments)
+            self.assertFalse(missing.is_error)
+            self.assertIsNone(missing.structured_content["remaining_work_interval"])
+            arguments["observations"] = [
+                {
+                    "reference_class": "test-model-host",
+                    "operation": "verify",
+                    "elapsed_seconds": seconds,
+                    "outcome": "complete",
+                }
+                for seconds in (1, 2, 3, 4, 5)
+            ]
+            result = await client.call_tool("forecast_remaining", arguments)
+            self.assertFalse(result.is_error)
+            self.assertEqual(
+                result.structured_content["remaining_work_interval"]["likely_seconds"],
+                3,
+            )
+
+    async def test_timebox_refresh_and_gate_keep_original_deadline(self) -> None:
+        assert Client is not None and mcp is not None
+        async with Client(mcp, raise_exceptions=True) as client:
+            started = await client.call_tool(
+                "start_timebox", {"duration_seconds": 60, "reserve_seconds": 10}
+            )
+            self.assertFalse(started.is_error)
+            state = started.structured_content
+            assert state is not None
+            arguments = {
+                "deadline": state["deadline"],
+                "started_at": state["started_at"],
+                "reserve_seconds": 10,
+            }
+            checked = await client.call_tool("check_deadline", arguments)
+            self.assertFalse(checked.is_error)
+            refreshed = checked.structured_content
+            assert refreshed is not None
+            self.assertEqual(refreshed["deadline"], state["deadline"])
+            self.assertEqual(refreshed["started_at"], state["started_at"])
+            self.assertLessEqual(refreshed["remaining_seconds"], 60)
+            self.assertGreater(refreshed["remaining_seconds"], 40)
+            gate = await client.call_tool(
+                "evaluate_checkpoint",
+                {
+                    **arguments,
+                    "estimate_low_seconds": 1,
+                    "estimate_likely_seconds": 2,
+                    "estimate_high_seconds": 3,
+                },
+            )
+            self.assertFalse(gate.is_error)
+            assert gate.structured_content is not None
+            self.assertEqual(gate.structured_content["action"], "continue")
+
+    async def test_invalid_timebox_inputs_return_tool_errors(self) -> None:
+        assert Client is not None and mcp is not None
+        async with Client(mcp) as client:
+            for arguments in (
+                {"duration_seconds": -1},
+                {"duration_seconds": 1, "reserve_seconds": 2},
+                {"duration_seconds": 1, "timezone_name": "not-a-zone"},
+            ):
+                with self.subTest(arguments=arguments):
+                    result = await client.call_tool("start_timebox", arguments)
+                    self.assertTrue(result.is_error)
 
     async def test_stdio_subprocess_interoperability(self) -> None:
         assert Client is not None

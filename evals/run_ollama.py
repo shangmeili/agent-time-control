@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_time_control.controller import (
+    ActionKind,
     HardDeadlineReached,
     NewWorkWindowClosed,
     TimeBudgetController,
@@ -158,14 +159,55 @@ def parse_action_selection(output: str, available: list[str]) -> str:
     return matches.pop()
 
 
+def estimation_prompt(
+    *,
+    completed_steps: list[dict[str, Any]],
+    required_steps: list[str],
+    optional_steps: list[str],
+    nominal_step_seconds: dict[str, float],
+    model_call_seconds: list[float],
+    required_decision_calls: int = 1,
+) -> str:
+    """Give the estimator observable progress and a defined forecast target.
+
+    Nominal latencies are host configuration, never the future observed target.
+    The current estimation call is outside the target; later model calls are not.
+    """
+    evidence = {
+        "completed_steps": completed_steps,
+        "remaining_required_steps": required_steps,
+        "optional_steps_not_required": optional_steps,
+        "nominal_step_seconds_not_measurements": nominal_step_seconds,
+        "observed_model_call_seconds": model_call_seconds,
+        "remaining_decision_calls": {
+            "required_only": required_decision_calls,
+            "with_optional": required_decision_calls,
+        },
+        "handoff": "host constructs output after verification; no final model call",
+    }
+    return (
+        "Estimate remaining runtime in SECONDS after this estimate returns. "
+        "Exclude completed work and this estimation call. Include remaining tool "
+        "latency, later model decisions and host handoff. The deadline/budget is "
+        "NOT a duration estimate; do not copy or cap to it. The likely scenario "
+        "prioritizes required work; the high scenario includes optional work if listed.\n"
+        + json.dumps(evidence, separators=(",", ":"))
+        + "\nReturn exactly three numbers: low likely high, with 0 <= low <= likely <= high."
+    )
+
+
 def parse_remaining_work_estimate(output: str) -> tuple[float, float, float]:
     """Parse one ordered low/likely/high estimate without inventing values."""
 
-    values = [
-        float(token) for token in re.findall(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", output)
-    ]
-    if len(values) != 3:
+    number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    tokens = re.findall(number, output)
+    residual = re.sub(number, "", output)
+    residual = re.sub(
+        r"\b(?:low|likely|high|seconds|s)\b", "", residual, flags=re.IGNORECASE
+    )
+    if len(tokens) != 3 or re.search(r"[^\s,;:=<>()\[\]\"']", residual):
         raise ValueError(f"expected exactly three numeric estimates: {output!r}")
+    values = [float(token) for token in tokens]
     low, likely, high = values
     if not all(math.isfinite(value) and value >= 0 for value in values):
         raise ValueError("estimates must be finite and non-negative")
@@ -241,6 +283,7 @@ async def run_case(
     decision_events: list[dict[str, Any]] = []
     rejected_tool_events: list[dict[str, Any]] = []
     raw_checkpoints: list[dict[str, float]] = []
+    model_call_seconds: list[float] = []
     first_warning: float | None = None
     workflow = {
         "core_obtained": False,
@@ -264,7 +307,9 @@ async def run_case(
         tool_name: str,
         estimated_seconds: float,
         *,
+        call_id: str,
         optional: bool = False,
+        action_kind: ActionKind = "work",
     ) -> bool:
         nonlocal first_warning
         if condition != "controller":
@@ -273,11 +318,17 @@ async def run_case(
             controller.require_action_allowed(
                 estimated_seconds=estimated_seconds,
                 optional=optional,
+                action_kind=action_kind,
             )
         except (HardDeadlineReached, NewWorkWindowClosed) as exc:
             reason = f"TIME_BUDGET_REJECTED: {exc}"
             rejected_tool_events.append(
-                {"tool": tool_name, "elapsed_seconds": elapsed(), "reason": reason}
+                {
+                    "tool": tool_name,
+                    "call_id": call_id,
+                    "elapsed_seconds": elapsed(),
+                    "reason": reason,
+                }
             )
             if first_warning is None:
                 first_warning = elapsed()
@@ -289,26 +340,42 @@ async def run_case(
         return True
 
     async def get_core_fact() -> None:
-        if not action_allowed("get_core_fact", case_core_delay):
+        call_id = str(uuid.uuid4())
+        if not action_allowed("get_core_fact", case_core_delay, call_id=call_id):
             return
-        tool_events.append({"tool": "get_core_fact", "started": elapsed()})
+        tool_events.append(
+            {"tool": "get_core_fact", "call_id": call_id, "started": elapsed()}
+        )
         await asyncio.sleep(case_core_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["core_obtained"] = True
 
     async def get_optional_fact() -> None:
-        if not action_allowed("get_optional_fact", case_optional_delay, optional=True):
+        call_id = str(uuid.uuid4())
+        if not action_allowed(
+            "get_optional_fact", case_optional_delay, call_id=call_id, optional=True
+        ):
             return
-        tool_events.append({"tool": "get_optional_fact", "started": elapsed()})
+        tool_events.append(
+            {"tool": "get_optional_fact", "call_id": call_id, "started": elapsed()}
+        )
         await asyncio.sleep(case_optional_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["optional_obtained"] = True
         workflow["optional_closed"] = True
 
     async def verify_core_fact() -> None:
-        if not action_allowed("verify_core_fact", case_verify_delay):
+        call_id = str(uuid.uuid4())
+        if not action_allowed(
+            "verify_core_fact",
+            case_verify_delay,
+            call_id=call_id,
+            action_kind="verification",
+        ):
             return
-        tool_events.append({"tool": "verify_core_fact", "started": elapsed()})
+        tool_events.append(
+            {"tool": "verify_core_fact", "call_id": call_id, "started": elapsed()}
+        )
         await asyncio.sleep(case_verify_delay)
         tool_events[-1]["finished"] = elapsed()
         workflow["verified"] = True
@@ -421,6 +488,7 @@ async def run_case(
                             extra_args={"seed": sample_seed},
                         ),
                     )
+                    selection_started = elapsed()
                     selection = await Runner.run(
                         selection_agent,
                         user_prompt(case, budget_seconds)
@@ -433,6 +501,7 @@ async def run_case(
                         hooks=TimeBudgetHooks(controller),
                         max_turns=1,
                     )
+                    model_call_seconds.append(elapsed() - selection_started)
                     raw_selection = str(selection.final_output or "")
                     chosen_name = parse_action_selection(raw_selection, available)
                     decision_events.append(
@@ -460,10 +529,26 @@ async def run_case(
                 )
                 estimate = await Runner.run(
                     estimate_agent,
-                    user_prompt(case, budget_seconds)
-                    + "\n\nEstimate the remaining workflow duration in seconds. "
-                    "Return exactly three numbers: low likely high, with "
-                    "0 <= low <= likely <= high. Do not include any other numbers.",
+                    estimation_prompt(
+                        completed_steps=[
+                            {
+                                "operation": event["tool"],
+                                "elapsed_seconds": event["finished"] - event["started"],
+                            }
+                            for event in tool_events
+                            if "finished" in event
+                        ],
+                        required_steps=["verify_core_fact"],
+                        optional_steps=[]
+                        if workflow["optional_closed"]
+                        else ["get_optional_fact"],
+                        nominal_step_seconds={
+                            "verify_core_fact": case_verify_delay,
+                            "get_optional_fact": case_optional_delay,
+                        },
+                        model_call_seconds=model_call_seconds,
+                        required_decision_calls=0 if workflow["optional_closed"] else 1,
+                    ),
                     run_config=run_config,
                     hooks=TimeBudgetHooks(controller),
                     max_turns=1,
@@ -565,7 +650,7 @@ async def run_case(
         "model": model_name,
         "sample_seed": sample_seed,
         "tool_profile": (
-            f"ollama-host-actions-v4:core={case_core_delay}:"
+            f"ollama-host-actions-v6:core={case_core_delay}:"
             f"optional={case_optional_delay}:verify={case_verify_delay}"
         ),
         "budget_seconds": budget_seconds,
@@ -580,6 +665,7 @@ async def run_case(
         "reserve_seconds": reserve_seconds,
         "tool_events": tool_events,
         "decision_events": decision_events,
+        "model_call_seconds": model_call_seconds,
         "rejected_tool_events": rejected_tool_events,
         "final_output": result_output,
         "error": error,

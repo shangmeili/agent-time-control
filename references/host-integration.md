@@ -32,7 +32,7 @@ emit the best verified result plus exact remaining work
 
 Use process-level cancellation for hard timeouts. A model instruction such as “stop after 30 minutes” is advisory and cannot enforce cancellation while a tool call is blocked.
 
-The bundled `scripts/deadline_run.py` enforces this boundary for one local subprocess. A production host must provide equivalent cancellation for model calls, remote tools, queues, and child jobs; cancelling the local client does not prove that remote work stopped.
+The bundled `scripts/deadline_run.py` initiates timeout cleanup for an isolated local process group on POSIX. It also cleans up remaining group members when the leader exits normally. A bounded termination grace period (default 2 seconds) precedes forced kill; this is additional cleanup time beyond the execution budget. Descendants that leave the group are not contained, and non-POSIX platforms currently terminate only the direct process. A production host must provide equivalent cancellation for model calls, remote tools, queues, and child jobs; cancelling the local client does not prove that remote work stopped.
 
 ## Implemented adapters
 

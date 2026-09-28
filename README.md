@@ -6,10 +6,12 @@ read-only calibration summaries, automatic model/tool checkpoints, and local
 deadline enforcement. The optional Skill supplies planning practice; it is not
 the enforcement mechanism.
 
-Status: open-source `0.1.0`. The mechanisms and interfaces are tested, the
-repository is licensed under Apache-2.0, the amended preregistered behavioral
-pilot passed its frozen advancement gate, and public CI verifies Python 3.10,
-3.12, and 3.14.
+Status: `0.2.0` local delivery build, not yet published. Licensed under Apache-2.0.
+Install the portable Skill ZIP or Python wheel using [INSTALL.md](INSTALL.md).
+The source includes fail-closed release validation and reproducible Skill packaging.
+Prior 0.1.0 pilot results are retained; they are not certification of this build.
+CI is configured for Linux, macOS and Windows; actual validation receipts identify
+which environments were executed.
 
 ## Why this exists
 
@@ -31,10 +33,15 @@ This project therefore separates five jobs:
 ## What is implemented
 
 - Pure Python clock, timebox, forecast, and control-gate primitives.
-- A local MCP 2.x server with five structured tools:
-  `time_now`, `start_timebox`, `check_deadline`, `evaluate_checkpoint`, and
-  `summarize_calibration`.
+- A local MCP 2.x server with six structured tools:
+  `time_now`, `start_timebox`, `check_deadline`, `evaluate_checkpoint`,
+  `summarize_calibration`, and `forecast_remaining`.
 - A framework-neutral `TimeBudgetController`.
+- Opt-in, bounded `TimingRecorder` measurement with unique observation IDs and
+  retained failure/cancellation outcomes, without prompts, outputs or implicit storage.
+- Remaining-work forecasts from caller-supplied comparable step timings, with
+  explicit missing/censored evidence and no implicit history access; see
+  [remaining-work forecasting](references/forecasting.md).
 - An OpenAI Agents SDK adapter that refreshes state before every model call and
   blocks new local tool work after the execution window closes.
 - Prompt caller-deadline return for local coroutines and contained subprocess
@@ -110,6 +117,9 @@ fail-closed option for tool classes without guardrails. The outer wrapper reques
 cancellation and returns control at the hard deadline. Python coroutine
 cancellation remains cooperative: a cancellation-suppressing task, remote provider,
 or tool may continue unless it is process-isolated or its API confirms cancellation.
+Required verification and handoff tools may use the reserve when the host sets
+`action_kind="verification"` or `action_kind="handoff"` on their guardrail; all
+other work keeps the execution-window limit. See the adapter integration guide.
 
 ## Standalone tools
 
@@ -148,6 +158,20 @@ evaluator live in [`evals/`](evals/). The v1 harness failure and the independent
 seeded passing v2 result are both retained; see
 [`evals/PILOT_V2_RESULTS.md`](evals/PILOT_V2_RESULTS.md).
 
+## Build and validate a delivery
+
+```bash
+python -m pip install -e '.[test,openai-agents,release]'
+python scripts/validate_release.py --output eval-results/release-validation
+python scripts/build_release.py --python-dist --output dist/agent-time-control-0.2.0
+```
+
+Use new output directories; previous receipts and artifacts are never overwritten.
+The ZIP contains the runtime scripts/source, reference files, install self-test and
+per-file SHA-256 manifest. The wheel supplies the Python/MCP integration. Source
+packages include tests and build tooling. Private `eval-results/`, Git metadata and
+build caches are excluded. See [CHANGELOG.md](CHANGELOG.md) and [SECURITY.md](SECURITY.md).
+
 ## Assurance
 
 The repository distinguishes:
@@ -157,8 +181,10 @@ The repository distinguishes:
 - T3: host-enforced cancellation for the operations actually wrapped;
 - T4: measured calibration on comparable retained outcomes.
 
-The current implementation demonstrates contained T3 behavior for local
-subprocesses. Wrapped local async runs enforce the caller's deadline and request
+The current implementation initiates local subprocess timeout cleanup at the
+execution limit. POSIX process-group cleanup has an additional bounded termination
+grace period; descendants outside that group and non-POSIX process trees are not
+contained. Wrapped local async runs enforce the caller's deadline and request
 task cancellation, but cannot contain a coroutine that suppresses cancellation.
 It does not yet claim T4, general remote cancellation, or cross-model behavioral
 improvement.
