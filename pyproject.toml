@@ -15,7 +15,7 @@ dependencies = ["mcp>=2.2,<2.3", "tzdata>=2025.2; sys_platform == 'win32'"]
 [project.optional-dependencies]
 test = ["jsonschema>=4.20,<5", "PyYAML>=6,<7"]
 openai-agents = ["openai-agents>=0.22.3,<0.23"]
-release = ["build==1.6.1", "ruff==0.16.9", "coverage==7.16.2"]
+release = ["build==1.6.1", "setuptools>=77", "ruff==0.16.9", "coverage==7.16.2"]
 
 [project.scripts]
 agent-time-mcp = "agent_time_control.mcp_server:main"

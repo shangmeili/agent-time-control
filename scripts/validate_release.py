@@ -81,6 +81,7 @@ def main() -> int:
             ("coverage", "coverage"),
             ("ruff", "ruff"),
             ("build", "build"),
+            ("setuptools.build_meta", "setuptools"),
         ):
             importlib.import_module(module)
             dependencies[distribution] = importlib.metadata.version(distribution)
@@ -198,6 +199,28 @@ def main() -> int:
             ],
         )
         run("installation", ["-B", "scripts/verify_install.py", "--mcp"])
+        run(
+            "distributions",
+            [
+                "-B",
+                "scripts/build_release.py",
+                "--python-dist",
+                "--output",
+                str(output / "distributions"),
+            ],
+            timeout=180,
+        )
+        if checks["distributions"]["passed"]:
+            run(
+                "clean_installation",
+                [
+                    "-B",
+                    "scripts/verify_distributions.py",
+                    "--distributions",
+                    str(output / "distributions"),
+                ],
+                timeout=600,
+            )
     after = source_hashes(ROOT)
     checks["source_unchanged_during_validation"] = {"passed": before == after}
     report = {

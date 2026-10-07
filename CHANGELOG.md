@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — release validation repair
+
+- Declare the backend required by non-isolated release builds.
+- Include distribution building and clean wheel/source/Skill installation in the
+  release receipt, with cross-platform CI evidence retained as artifacts.
+- Add the existing staged Skill installer with instruction preservation, explicit
+  replacement backups, rollback and repeat-install verification.
+
 ## 0.2.0 — local delivery build, not published
 
 - Preserve the 0.1.0 APIs and add empirical remaining-step forecasting, a stdio
