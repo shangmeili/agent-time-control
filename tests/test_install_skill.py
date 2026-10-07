@@ -47,7 +47,8 @@ class SkillInstallerTests(unittest.TestCase):
             config = home / "custom-codex"
             config.mkdir()
             override = config / "AGENTS.override.md"
-            override.write_text("keep override\n")
+            original = "keep override — 保留现有规则\n"
+            override.write_text(original, encoding="utf-8")
             with (
                 patch("install_skill.Path.home", return_value=home),
                 patch.dict(os.environ, {"CODEX_HOME": str(config)}),
@@ -57,7 +58,7 @@ class SkillInstallerTests(unittest.TestCase):
                 Path(result["skill_dir"]), home / ".agents/skills/time-aware-execution"
             )
             self.assertEqual(Path(result["instructions_file"]), override)
-            self.assertTrue(override.read_text().startswith("keep override\n"))
+            self.assertTrue(override.read_text(encoding="utf-8").startswith(original))
             self.assertFalse((config / "AGENTS.md").exists())
 
     def test_corrupt_manifest_is_not_mistaken_for_an_unchanged_install(self):
