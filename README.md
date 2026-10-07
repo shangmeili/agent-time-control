@@ -13,6 +13,14 @@ Prior 0.1.0 pilot results are retained; they are not certification of this build
 CI is configured for Linux, macOS and Windows; actual validation receipts identify
 which environments were executed.
 
+## Install the portable Skill
+
+From a checkout or extracted source distribution, run
+`python3 scripts/install_skill.py` with Python 3.10+. Use
+`--project /path/to/project` for a project-local install. Existing instructions
+are preserved; changed Skill installations require explicit backed-up replacement.
+See [INSTALL.md](INSTALL.md) for runtime dependencies and verification.
+
 ## Why this exists
 
 Language models can reason about dates without continuously observing elapsed

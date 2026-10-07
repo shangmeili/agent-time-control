@@ -1,5 +1,26 @@
 # Install and operate Agent Time Control 0.2.0
 
+## One-command installation from a checkout
+
+```bash
+python3 scripts/install_skill.py
+```
+
+Use an available Python 3.10+ interpreter. The installer builds and self-tests a
+portable Skill, installs it in `~/.agents/skills/time-aware-execution`, and merges
+one managed block into `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`). If an
+`AGENTS.override.md` exists, it uses that effective instruction file instead.
+Existing text is preserved byte-for-byte outside the managed block. Repeating an
+unchanged installation makes no changes. Different or locally edited installations
+require `--replace`; replaced content and existing rules are backed up outside the
+Skill discovery tree. A rule-write failure rolls back the Skill installation.
+
+Use `--project /absolute/project/path` to install project-locally for a team or an
+isolated acceptance test. This command installs no Python packages, MCP server or
+model. Run from a checkout or extracted source distribution. Start a new agent session
+to verify host discovery and actual use; file installation alone does not prove
+agent activation.
+
 ## Choose the execution surface
 
 The portable Skill contains its scripts and Python source. Its clock, gate,
@@ -109,10 +130,24 @@ From the source distribution:
 ```bash
 python -m pip install -e '.[test,openai-agents,release]'
 python scripts/validate_release.py --output eval-results/release-validation
-python scripts/build_release.py --python-dist --output dist/agent-time-control-0.2.0
 ```
 
-Both commands require a new output directory and leave existing results intact.
+Validation requires a new output directory and leaves existing results intact.
+It builds the ZIP, wheel and sdist into that directory's `distributions/`, then
+installs the wheel and sdist with the Agents SDK extra into separate fresh virtual
+environments outside the checkout. It checks dependency consistency, package import
+location, the controller and the installed MCP console entry point. It also verifies
+the extracted ZIP and runs the source distribution's one-command Skill installer
+twice in a temporary project, preserving pre-existing rules. These checks require
+network access to install dependencies; they do not install into user Skill paths
+or prove discovery in a live agent session.
+
+The release extra explicitly installs setuptools because `build_release.py` uses
+`build --no-isolation`. The backend installed temporarily by an editable install's
+build isolation is not available to this later command. A missing backend or a
+failed distribution/installation check makes the validation receipt fail.
+
+To build only, run `python scripts/build_release.py --python-dist --output dist/new`.
 Review the validation report, checksum manifest and compatibility section before
 rollout. Test the new Skill in staging with the target host and workload, then
 replace the old folder/environment during a planned change. Keep the previous
